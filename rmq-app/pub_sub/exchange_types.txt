@@ -1,0 +1,4 @@
+1. direct
+2. topic
+3. headers
+4. fanout
