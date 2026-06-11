@@ -1,0 +1,12 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-all main.ts"
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1",
+    "@std/dotenv": "jsr:@std/dotenv@^0.225.7",
+    "amqplib": "npm:amqplib@^2.0.1",
+    "bullmq": "npm:bullmq@^5.78.0",
+    "redis": "npm:redis@^6.0.0"
+  }
+}

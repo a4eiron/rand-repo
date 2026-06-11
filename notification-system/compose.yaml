@@ -1,0 +1,19 @@
+services:
+  rabbitmq:
+    image: rabbitmq:management
+    hostname: rabbitmq
+    container_name: not-rabbitmq
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+
+  redis:
+    image: redis:latest
+    container_name: not-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - "not_redis_data:/data"
+
+volumes:
+  not_redis_data:
