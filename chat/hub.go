@@ -3,16 +3,23 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
+var ServerID = uuid.New().String()
+
 type Message struct {
-	UserID string `json:"user_id"`
-	RoomID string `json:"room_id"`
-	Data   []byte `json:"data"`
+	UserID   string `json:"user_id"`
+	RoomID   string `json:"room_id"`
+	Data     []byte `json:"data"`
+	DataStr  string `json:"data_str"`
+	ServerID string `json:"server_id"`
 }
 
 type Client struct {
@@ -32,7 +39,7 @@ func (c *Client) ReadPump(ctx context.Context, hub *Hub) {
 		if err != nil {
 			return
 		}
-		hub.broadcast <- Message{UserID: c.ID, RoomID: c.roomID, Data: msg}
+		hub.broadcast <- Message{UserID: c.ID, RoomID: c.roomID, Data: msg, ServerID: ServerID}
 	}
 }
 
@@ -70,18 +77,25 @@ func (c *Client) WritePump(ctx context.Context, hub *Hub) {
 
 type Hub struct {
 	rooms      map[string]map[*Client]bool
+	rdb        *redis.Client
 	broadcast  chan Message
 	register   chan *Client
 	unregister chan *Client
 }
 
 func NewHub() *Hub {
-	return &Hub{
+	hub := &Hub{
 		rooms:      make(map[string]map[*Client]bool),
 		broadcast:  make(chan Message, 256),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 	}
+
+	hub.rdb = redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+
+	return hub
 }
 
 func (h *Hub) run(ctx context.Context) {
@@ -117,16 +131,53 @@ func (h *Hub) run(ctx context.Context) {
 				log.Println(err)
 				continue
 			}
+			h.broadCastToRoom(msg.RoomID, msg.UserID, data)
+			h.publishToRedis(msg.RoomID, data)
 
-			for c := range h.rooms[msg.RoomID] {
-				select {
-				case c.send <- data:
-				default:
-					// delete(h.rooms[c.roomID], c)
-					h.unregister <- c
-				}
+		}
+	}
+}
+
+func (h *Hub) publishToRedis(roomID string, msg []byte) error {
+	return h.rdb.Publish(context.Background(), fmt.Sprintf("chat:room:%s", roomID), msg).Err()
+}
+
+func (h *Hub) subscribeToRedis(ctx context.Context) {
+	pubsub := h.rdb.PSubscribe(ctx, "chat:room:*")
+	ch := pubsub.Channel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case redisMsg, ok := <-ch:
+			if !ok {
+				return
 			}
 
+			var msg Message
+			err := json.Unmarshal([]byte(redisMsg.Payload), &msg)
+			if err != nil {
+				log.Println("unmarshal", err)
+				continue
+			}
+
+			if msg.ServerID != ServerID {
+				h.broadCastToRoom(msg.RoomID, msg.UserID, []byte(redisMsg.Payload))
+			}
+		}
+	}
+}
+
+func (h *Hub) broadCastToRoom(roomID string, userID string, msg []byte) {
+	for client := range h.rooms[roomID] {
+		if client.ID == userID {
+			continue
+		}
+		select {
+		case client.send <- msg:
+		default:
+			h.unregister <- client
 		}
 	}
 }

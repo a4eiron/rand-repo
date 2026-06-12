@@ -1,4 +1,8 @@
-const ws = new WebSocket("ws://localhost:8000", {
+if (Deno.args.length < 3) {
+  throw new Error("want X-Room-Id, X-User-Id, server Port");
+}
+
+const ws = new WebSocket(`ws://localhost:${Deno.args[2]}`, {
   headers: {
     "X-Room-Id": Deno.args[0],
     "X-User-Id": Deno.args[1],
